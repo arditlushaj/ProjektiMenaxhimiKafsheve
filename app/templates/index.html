@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Qendra për Kujdesin e Kafshëve</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Menaxhimi i qendrës</p>
+      <h1>Qendra për Kujdesin e Kafshëve</h1>
+    </div>
+    <button id="refreshButton" class="secondary">Përditëso</button>
+  </header>
+
+  <main>
+    <nav class="tabs" aria-label="Navigimi">
+      <button class="tab active" data-view="animals">Kafshët</button>
+      <button class="tab" data-view="adoptions">Aplikimet</button>
+      <button class="tab" data-view="tasks">Detyrat</button>
+    </nav>
+
+    <section id="animalsView" class="view">
+      <div class="toolbar">
+        <label>Kerko <input id="searchInput" type="search" placeholder="Emri ose lloji"></label>
+        <label>Status
+          <select id="statusFilter">
+            <option value="">Të gjitha</option>
+            <option value="available">Në dispozicion</option>
+            <option value="in_care">Në kujdes</option>
+            <option value="adopted">I adoptuar</option>
+          </select>
+        </label>
+        <button id="openAnimalForm" class="primary">Shto kafshë</button>
+      </div>
+      <div id="animalsLoading" class="state loading" hidden>Po ngarkohen kafshët...</div>
+      <div id="animalsError" class="state error" hidden></div>
+      <div id="animalsEmpty" class="state" hidden>Nuk u gjet asnjë kafshë.</div>
+      <div id="animalsGrid" class="grid"></div>
+    </section>
+
+    <section id="adoptionsView" class="view" hidden>
+      <div id="adoptionsLoading" class="state loading" hidden>Po ngarkohen aplikimet...</div>
+      <div id="adoptionsError" class="state error" hidden></div>
+      <div id="adoptionsEmpty" class="state" hidden>Nuk ka aplikime për birësim.</div>
+      <div id="adoptionsGrid" class="grid"></div>
+    </section>
+
+    <section id="tasksView" class="view" hidden>
+      <div id="tasksLoading" class="state loading" hidden>Po ngarkohen detyrat...</div>
+      <div id="tasksError" class="state error" hidden></div>
+      <div id="tasksEmpty" class="state" hidden>Nuk ka detyra.</div>
+      <div id="tasksGrid" class="grid"></div>
+    </section>
+  </main>
+
+  <dialog id="animalDialog">
+    <form id="animalForm" method="dialog">
+      <div class="dialogHeader"><h2>Shto kafshë</h2><button type="button" class="close" data-close>×</button></div>
+      <div class="formGrid">
+        <label>Emri* <input name="name" required></label>
+        <label>Lloji* <input name="species" required></label>
+        <label>Raca <input name="breed"></label>
+        <label>Mosha (muaj) <input name="age_months" type="number" min="0"></label>
+        <label>Gjinia*
+          <select name="gender" required><option value="">Zgjidhni</option><option value="mashkull">Mashkull</option><option value="femer">Femër</option></select>
+        </label>
+        <label>Data e pranimit* <input name="intake_date" type="date" required></label>
+        <label class="full">Përshkrimi <textarea name="description"></textarea></label>
+        <label class="full">Gjendja shëndetësore <input name="health_status"></label>
+      </div>
+      <p id="animalFormError" class="error" hidden></p>
+      <button class="primary" type="submit">Ruaj kafshën</button>
+    </form>
+  </dialog>
+
+  <dialog id="adoptionDialog">
+    <form id="adoptionForm" method="dialog">
+      <input type="hidden" name="animal_id">
+      <div class="dialogHeader"><h2>Aplikoni për birësim</h2><button type="button" class="close" data-close>×</button></div>
+      <p id="adoptionAnimalName"></p>
+      <div class="formGrid">
+        <label>Emri dhe mbiemri* <input name="applicant_name" required></label>
+        <label>Email* <input name="email" type="email" required></label>
+        <label class="full">Telefoni <input name="phone"></label>
+        <label class="full">Mesazhi <textarea name="message"></textarea></label>
+      </div>
+      <p id="adoptionFormError" class="error" hidden></p>
+      <button class="primary" type="submit">Dërgo aplikimin</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

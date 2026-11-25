@@ -10,7 +10,27 @@ python run.py
 ```
 
 Aplikacioni lokal është te `http://127.0.0.1:5000`; kontrolli i gjendjes është te `/health`.
-Skripti i thjeshtë i konsolës niset me `python main.py`.
+Databaza demo përdor SQLite (`qendra.db`) dhe inicializohet automatikisht me të dhëna shembull.
+
+Funksionimet kryesore:
+- Kërkimi dhe filtrim i kafshëve
+- Regjistrimi i kafshëve përmes formularit
+- Dërgimi dhe shqyrtimi i aplikimeve për birësim
+- Shfaqja dhe përditësimi i detyrave të kujdesit
+- Loading, empty, error dhe toast states
+
+API:
+- `GET /api/animals`
+- `POST /api/animals`
+- `GET /api/adoptions`
+- `POST /api/adoptions`
+- `PATCH /api/adoptions/<id>`
+- `GET /api/tasks`
+- `PATCH /api/tasks/<id>`
+
+Testet ekzekutohen me `python -m unittest -v`.
+
+Raporti teknik i fazës 3 gjendet në `Raporti_3_Ardit_Lushaj.docx`.
 
 Raporti 1
 Ideja e projektit
