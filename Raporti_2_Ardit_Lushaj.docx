@@ -1,0 +1,359 @@
+Raporti Teknik 2 – Databaza, backend-i dhe API
+Sistemi për Menaxhimin e Qendrave të Kujdesit për Kafshë
+Universiteti i Prizrenit “Ukshin Hoti”
+Fusha	Të dhënat
+Punoi	Ardit Lushaj
+Lënda	Projekt (Praktikë Profesionale), Semestri V
+Profesori	Prof. Ass. Dr. Endrit Fetahi
+Programi / Fakulteti	Dizajn Softueri, Fakulteti i Shkencave Kompjuterike
+Viti akademik	2026/2027
+1. Hyrje
+Në Raportin 1 u përcaktuan ideja, kërkesat dhe arkitektura e sistemit. Në këtë raport projekti kalon nga dizajni në implementim: është krijuar databaza reale, është ndërtuar backend-i dhe janë realizuar endpoint-et kryesore të REST API-së për modulet e kafshëve, kujdesit, adoptimeve dhe autentikimit.
+Teknologjitë e zgjedhura përfundimisht:
+•	Python + Flask, sepse projekti është i përmasave mesatare dhe Flask jep kontroll të plotë mbi strukturën pa kompleksitet të panevojshëm.
+•	SQLAlchemy (ORM) për qasje në databazë.
+•	MariaDB si databazë relacionale, sepse të dhënat kanë lidhje të forta (kafshë, trajtime, aplikime, përdorues) dhe kërkojnë integritet referencial.
+•	JWT për autentikim dhe bcrypt për hash-imin e fjalëkalimeve.
+•	Postman për testimin e API-së.
+2. Databaza
+Databaza qendra_per_menaxhimin_e_kafsheve ka 12 tabela (InnoDB, utf8mb4_unicode_ci) dhe krijohet realisht me skriptën qendra_per_menaxhimi_e_kafsheve.sql. Skripta e rikrijon databazën nga zero (DROP DATABASE IF EXISTS), prandaj përdoret vetëm gjatë zhvillimit.
+2.1 Tabelat dhe lidhja me Raportin 1
+Tabela reale	Emri në Raportin 1	Qëllimi
+perdoruesit	users	Llogaritë, email-i, fjalëkalimi, roli, statusi aktiv
+kafshet	animals	Të dhënat bazë dhe statusi i kafshëve
+te_dhenat_mjekesore	medical_records	Kontrollet, vaksinimet, trajtimet, barnat, operacionet
+hapesira_strehimit	shelter_spaces	Kafazet, dhomat, karantina dhe kapaciteti i tyre
+detyra_per_kafshet	animal_assignments	Caktimi i kafshëve në hapësira (me datë caktimi dhe lirimi)
+detyrat_e_kujdesit	care_tasks	Ushqyerje, pastrim, shëtitje, mjekim
+aplikimet_per_adoptim	adoption_applications	Aplikimet dhe statusi i shqyrtimit
+adoptimet	adoptions	Adoptimet e miratuara
+furnizimet	supplies	Inventari i ushqimit, ilaçeve dhe pajisjeve
+donacionet	donations	Donacionet financiare dhe materiale
+njoftimet	notifications	Njoftimet për përdoruesit
+aprovimet	approvals	Evidenca e veprimeve që kërkojnë shqyrtim
+2.2 Ndryshimet nga versioni fillestar (Raporti 1)
+Tabela	Ndryshimi	Arsyeja
+Të gjitha	Emrat e tabelave dhe kolonave në shqip, me shkronja të vogla dhe _	Konsistencë me gjuhën e projektit
+perdoruesit	U shtuan telefoni dhe eshte_aktiv	Kontakt për aplikuesit; çaktivizim i llogarisë pa e fshirë historikun
+kafshet	U shtuan data_e_pranimit, regjistruar_nga; lloji u kufizua në qen/mace/tjeter; statusi ka 5 vlera	Gjurmim se kush e regjistroi kafshën dhe kur; statuse të qarta
+te_dhenat_mjekesore	U shtuan veteriner_id, lloji_rekordit, data_e_radhes	Përgjegjësi për çdo regjistrim; data_e_radhes mundëson njoftimet për vizita
+detyra_per_kafshet	U shtuan caktuar_nga, caktuar_me, liruar_me	liruar_me IS NULL tregon caktimin aktiv, kështu ruhet historiku
+detyrat_e_kujdesit	U shtuan krijuar_nga, afati_fundit, perfunduar_me; kafshe_id mund të jetë NULL	Detyra të përgjithshme pa kafshë të caktuar
+aplikimet_per_adoptim	U shtuan informacion_banimi, pervoja, shenime_vendimi, shqyrtuar_nga/me; statusi terhequr	Vlerësim i aplikuesit dhe auditim i vendimit
+adoptimet	UNIQUE te aplikim_id dhe kafshe_id	Një aplikim jep një adoptim, një kafshë adoptohet një herë
+furnizimet	U shtuan sasia_minimale, data_skadences	Njoftime për stoqe të ulëta dhe produkte që skadojnë
+donacionet	U ndanë para / material; donator_id mund të jetë NULL; lidhje me furnizimet	Donatorë anonimë dhe rritje e inventarit
+njoftimet	lloji si ENUM, eshte_lexuar	Filtrim dhe shënim si i lexuar
+aprovimet	Përcaktuar qartë: lloji_entitetit, entitet_id, kërkuesi, shqyrtuesi, statusi, komenti	Ruan çdo veprim që kërkon miratim
+2.3 Lidhjet kryesore
+•	perdoruesit 1 — N kafshet (regjistruar_nga): kush e ka regjistruar kafshën.
+•	kafshet 1 — N te_dhenat_mjekesore; çdo regjistrim ka një veteriner (veteriner_id → perdoruesit).
+•	kafshet N — M hapesira_strehimit përmes detyra_per_kafshet: një kafshë ndërron hapësira me kohë, një hapësirë strehon disa kafshë.
+•	kafshet 1 — N detyrat_e_kujdesit (opsionale) dhe perdoruesit 1 — N detyrat_e_kujdesit (i_caktuar_tek, krijuar_nga).
+•	kafshet 1 — N aplikimet_per_adoptim dhe perdoruesit 1 — N aplikimet_per_adoptim (aplikues_id, shqyrtuar_nga).
+•	aplikimet_per_adoptim 1 — 0..1 adoptimet; adoptimi lidh edhe kafshën, adoptuesin dhe miratuesin.
+•	furnizimet 1 — N donacionet (vetëm donacionet materiale).
+•	perdoruesit 1 — N njoftimet dhe perdoruesit 1 — N aprovimet (kërkuesi dhe shqyrtuesi).
+[PLOTËSO] Shto këtu diagramën ER të gjeneruar nga databaza reale (MySQL Workbench: Database → Reverse Engineer).
+2.4 Kufizimet sipas tabelës
+Tabela	Foreign keys (ON DELETE)	UNIQUE / CHECK	Indekse
+perdoruesit	—	UNIQUE email	roli
+kafshet	regjistruar_nga → perdoruesit (RESTRICT)	—	statusi; (lloji, statusi)
+te_dhenat_mjekesore	kafshe_id (CASCADE); veteriner_id (RESTRICT)	—	(kafshe_id, data_rekordit); data_e_radhes
+hapesira_strehimit	—	UNIQUE emri; CHECK kapaciteti > 0	—
+detyra_per_kafshet	kafshe_id (CASCADE); hapesire_id (RESTRICT); caktuar_nga (RESTRICT)	—	(hapesire_id, liruar_me); kafshe_id
+detyrat_e_kujdesit	kafshe_id (SET NULL); i_caktuar_tek (RESTRICT); krijuar_nga (RESTRICT)	—	(i_caktuar_tek, statusi); afati_fundit
+aplikimet_per_adoptim	kafshe_id (CASCADE); aplikues_id (CASCADE); shqyrtuar_nga (SET NULL)	UNIQUE (kafshe_id, aplikues_id)	statusi
+adoptimet	aplikim_id, kafshe_id, adoptues_id, miratuar_nga (RESTRICT)	UNIQUE aplikim_id; UNIQUE kafshe_id	—
+furnizimet	—	UNIQUE (emri, kategoria); CHECK sasia >= 0	kategoria
+donacionet	donator_id (SET NULL); furnizim_id (SET NULL); regjistruar_nga (RESTRICT)	CHECK vlera IS NULL OR vlera > 0	data_donacionit
+njoftimet	perdorues_id (CASCADE)	—	(perdorues_id, eshte_lexuar)
+aprovimet	kerkuar_nga (RESTRICT); shqyrtuar_nga (SET NULL)	—	(lloji_entitetit, entitet_id); statusi
+Shembull nga skripta:
+CREATE TABLE aplikimet_per_adoptim (
+  id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kafshe_id           INT UNSIGNED NOT NULL,
+  aplikues_id         INT UNSIGNED NOT NULL,
+  arsyeja             TEXT NOT NULL,
+  statusi             ENUM('ne_pritje','miratuar','refuzuar','terhequr')
+                      NOT NULL DEFAULT 'ne_pritje',
+  shqyrtuar_nga       INT UNSIGNED NULL,
+  dorezuar_me         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_aplikim_kafshe FOREIGN KEY (kafshe_id)
+    REFERENCES kafshet(id) ON DELETE CASCADE,
+  CONSTRAINT fk_aplikim_aplikues FOREIGN KEY (aplikues_id)
+    REFERENCES perdoruesit(id) ON DELETE CASCADE,
+  CONSTRAINT fk_aplikim_shqyrtues FOREIGN KEY (shqyrtuar_nga)
+    REFERENCES perdoruesit(id) ON DELETE SET NULL,
+  CONSTRAINT uq_aplikim_kafshe_aplikues UNIQUE (kafshe_id, aplikues_id),
+  INDEX idx_aplikim_statusi (statusi)
+) ENGINE=InnoDB;
+2.5 Pse janë zgjedhur këto kufizime
+•	PRIMARY KEY INT UNSIGNED AUTO_INCREMENT te çdo tabelë: ID unike, e shpejtë për lidhje.
+•	UNIQUE perdoruesit.email: email-i përdoret për hyrje, prandaj dy llogari nuk mund ta kenë të njëjtin.
+•	UNIQUE (kafshe_id, aplikues_id): i njëjti qytetar nuk mund të aplikojë dy herë për të njëjtën kafshë.
+•	UNIQUE adoptimet.kafshe_id dhe aplikim_id: një kafshë adoptohet vetëm një herë dhe një aplikim jep maksimumi një adoptim. Është mbrojtja e fundit nëse dy shqyrtues miratojnë njëkohësisht.
+•	UNIQUE hapesira_strehimit.emri dhe (emri, kategoria) te furnizimet: parandalon dublikatat në katalog.
+•	NOT NULL vendoset te fushat pa të cilat rekordi nuk ka kuptim (emri i kafshës, data e pranimit, arsyeja e aplikimit, afati i detyrës).
+•	ENUM për lloje dhe statuse (roli, statusi, lloji): databaza refuzon çdo vlerë të paparashikuar.
+•	CHECK për kapaciteti > 0, sasia >= 0, vlera > 0; mosha_ne_muaj është UNSIGNED, pra nuk mund të jetë negative.
+•	ON DELETE RESTRICT te lidhjet me përdoruesit dhe te adoptimet: historiku nuk humbet. Përdoruesit çaktivizohen (eshte_aktiv = FALSE) në vend se të fshihen, dhe një kafshë e adoptuar nuk mund të fshihet.
+•	ON DELETE CASCADE vetëm ku fëmija nuk ka kuptim pa prindin: historiku mjekësor, caktimet e strehimit, aplikimet e një kafshe të fshirë dhe njoftimet e një përdoruesi.
+•	ON DELETE SET NULL ku rekordi duhet të mbetet: detyra pa kafshë bëhet detyrë e përgjithshme, donacioni mbetet anonim.
+•	Indekse vetëm te fushat që filtrohen shpesh: statusi i kafshëve (lista publike), statusi i aplikimeve, detyrat e një përdoruesi sipas statusit, afati i detyrave, data_e_radhes (njoftime për vizita). Indekset nuk vendosen kudo sepse ngadalësojnë shkrimin.
+2.6 Rregulla që nuk i mbron databaza dhe zbatohen në backend
+•	Kapaciteti i hapësirës: një kafshë caktohet vetëm nëse numri i caktimeve aktive (liruar_me IS NULL) është më i vogël se kapaciteti; kontrolli bëhet brenda transaksionit.
+•	Një caktim aktiv për kafshë: para caktimit të ri, caktimi i vjetër mbyllet (liruar_me = NOW()).
+•	Aplikim vetëm për kafshë në dispozicion: kafshet.statusi = 'ne_dispozicion'.
+•	Roli i veterinerit: veteriner_id duhet të ketë roli = 'veteriner'; çelësi i huaj kontrollon vetëm që përdoruesi ekziston.
+•	Donacionet: para kërkon vlera; material kërkon furnizim_id dhe sasia. Databaza kontrollon vetëm që vlera, kur ekziston, të jetë pozitive.
+•	aprovimet.entitet_id është referencë polimorfike (tregon adoptim, ndryshim mjekësor ose ndryshim përdoruesi sipas lloji_entitetit), prandaj nuk mund të ketë FOREIGN KEY; backend-i verifikon ekzistencën e entitetit.
+•	Fjalëkalimi ruhet vetëm si hash bcrypt në perdoruesit.fjalekalimi.
+2.7 Të dhëna testuese
+Skripta seed.sql ngarkon të dhëna testuese në të 12 tabelat:
+Tabela	Rreshta	Përmbajtja
+perdoruesit	6	Nga një për secilin rol, plus një qytetar i dytë
+kafshet	8	Statuse të ndryshme: ne_kujdes, ne_dispozicion, pritje_adoptimi, i_adoptuar
+te_dhenat_mjekesore	10	Kontrolle, vaksinime, trajtime, barna, operacion
+hapesira_strehimit	4	Kafaze, dhomë, karantinë
+detyra_per_kafshet	8	7 caktime aktive dhe 1 i lirë
+detyrat_e_kujdesit	6	Statuse per_te_bere, ne_progres, kryer; dy detyra të përgjithshme
+aplikimet_per_adoptim	5	ne_pritje, miratuar, refuzuar
+adoptimet	1	Adoptimi i Belës
+furnizimet	5	Disa nën sasinë minimale (për njoftime)
+donacionet	4	Financiare, materiale dhe anonime
+njoftimet	5	Të lexuara dhe të palexuara
+aprovimet	3	Miratuar, refuzuar, në pritje
+Të gjithë përdoruesit testues kanë fjalëkalimin Test1234! (të ruajtur si hash bcrypt).
+[PLOTËSO] Pamje ekrani e tabelave me të dhëna (phpMyAdmin, DBeaver ose Workbench).
+3. Backend-i
+3.1 Struktura e projektit
+app/
+  __init__.py        # krijimi i aplikacionit Flask, konfigurimi
+  models/            # modelet SQLAlchemy (perdorues.py, kafsha.py, ...)
+  routes/            # blueprint-et: auth, animals, medical, tasks, adoptions, ...
+  services/          # logjika e biznesit (p.sh. adoptim_service.py)
+  schemas/           # validimi i input-it
+  utils/             # dekoratorët e roleve, trajtimi i gabimeve
+seed.sql
+run.py
+[PLOTËSO] Përshtate strukturën me projektin tënd real.
+3.2 Rrjedha e një kërkese (request → databazë)
+1.	Klienti dërgon HTTP request me header Authorization: Bearer <token>.
+2.	Flask e drejton kërkesën te blueprint-i i duhur.
+3.	@jwt_required() verifikon tokenin; @role_required(...) kontrollon rolin.
+4.	Input-i validohet (fushat e detyrueshme, llojet, vlerat e lejuara, që përputhen me ENUM-et e databazës).
+5.	Shtresa e shërbimit zbaton rregullat e biznesit nga seksioni 2.6.
+6.	SQLAlchemy ekzekuton query-n e parametrizuar brenda një transaksioni: commit ruan ndryshimet, rollback i anulon kur ndodh gabim.
+7.	Serveri kthen JSON me status code përkatës.
+3.3 Autentikimi dhe autorizimi
+•	Fjalëkalimet ruhen vetëm si hash bcrypt; gjatë hyrjes krahasohet hash-i, jo teksti.
+•	Pas hyrjes së suksesshme kthehet JWT me user_id dhe roli, me skadim 2 orë. Llogaritë me eshte_aktiv = FALSE nuk hyjnë dot.
+•	Autorizimi ka dy nivele: sipas rolit (kush mund ta thërrasë endpoint-in) dhe sipas pronësisë (a lejohet ky përdorues ta ndryshojë këtë resurs konkret). ID-ja e përdoruesit merret gjithmonë nga tokeni, kurrë nga trupi i kërkesës.
+def role_required(*roles):
+    def decorator(fn):
+        @wraps(fn)
+        @jwt_required()
+        def wrapper(*args, **kwargs):
+            if get_jwt().get("roli") not in roles:
+                return error("FORBIDDEN", "You do not have permission.", 403)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+Shembull kontrolli pronësie: qytetari mund ta tërheqë vetëm aplikimin e vet (aplikim.aplikues_id == current_user_id), përndryshe kthehet 403.
+3.4 Logjika e biznesit: miratimi i adoptimit
+Miratimi ndryshon disa tabela, prandaj ekzekutohet si një transaksion i vetëm: ose ndodhin të gjitha ndryshimet, ose asnjë.
+def approve_application(app_id, reviewer_id):
+    aplikim = db.session.get(Aplikim, app_id)
+    if not aplikim:
+        raise NotFound("APPLICATION_NOT_FOUND")
+    if aplikim.statusi != "ne_pritje":
+        raise Conflict("APPLICATION_ALREADY_REVIEWED")
+    kafsha = aplikim.kafsha
+    if kafsha.statusi == "i_adoptuar":
+        raise Conflict("ANIMAL_ALREADY_ADOPTED")
+
+    try:
+        aplikim.statusi = "miratuar"
+        aplikim.shqyrtuar_nga = reviewer_id
+        aplikim.shqyrtuar_me = datetime.utcnow()
+        kafsha.statusi = "i_adoptuar"
+        db.session.add(Adoptim(aplikim_id=aplikim.id, kafshe_id=kafsha.id,
+                               adoptues_id=aplikim.aplikues_id,
+                               miratuar_nga=reviewer_id,
+                               data_adoptimit=date.today()))
+        # aplikimet e tjera në pritje për këtë kafshë refuzohen
+        Aplikim.query.filter(Aplikim.kafshe_id == kafsha.id,
+                             Aplikim.id != aplikim.id,
+                             Aplikim.statusi == "ne_pritje") \
+            .update({"statusi": "refuzuar"})
+        db.session.add(Njoftim(perdorues_id=aplikim.aplikues_id,
+                               lloji="statusi_aplikimit",
+                               mesazhi="Aplikimi juaj për adoptim u miratua."))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+4. REST API
+4.1 Formati i përgjigjeve
+Përgjigje e suksesshme:
+{ "success": true, "data": { } }
+Përgjigje me gabim:
+{ "success": false, "error": "ERROR_CODE", "message": "Përshkrim i gabimit." }
+Endpoint-et janë në anglisht, ndërsa fushat e JSON përputhen me kolonat e databazës.
+4.2 Endpoint-et kryesore
+Metoda	Endpoint	Qëllimi	Qasja	Status codes
+POST	/api/auth/register	Regjistrimi i qytetarit	Publik	201, 400, 409
+POST	/api/auth/login	Autentikimi i përdoruesit	Publik	200, 400, 401
+GET	/api/animals	Lista e kafshëve (filtra: lloji, statusi)	Publik: vetëm ne_dispozicion; stafi sheh të gjitha	200
+GET	/api/animals/:id	Profili i kafshës	Publik / staf	200, 404
+POST	/api/animals	Regjistron kafshë të re	administrator, staf	201, 400, 401, 403
+PATCH	/api/animals/:id	Përditëson të dhënat e kafshës	administrator, staf	200, 400, 403, 404
+DELETE	/api/animals/:id	Fshin kafshën (bllokohet nëse është adoptuar)	administrator	204, 403, 404, 409
+GET	/api/animals/:id/medical-records	Historiku mjekësor	administrator, staf, veteriner	200, 403, 404
+POST	/api/animals/:id/medical-records	Shton kontroll, vaksinim ose trajtim	veteriner, administrator	201, 400, 403, 404
+POST	/api/animals/:id/assignments	Cakton kafshën në hapësirë	administrator, staf	201, 400, 403, 404, 409
+GET	/api/tasks	Detyrat e përdoruesit (administratori i sheh të gjitha)	Të kyçur	200, 401
+POST	/api/tasks	Krijon detyrë të re	administrator, staf	201, 400, 403
+PATCH	/api/tasks/:id	Përditëson statusin ose të dhënat e detyrës	I caktuari ose administrator/staf	200, 400, 403, 404
+DELETE	/api/tasks/:id	Fshin detyrën	administrator, staf	204, 403, 404
+POST	/api/adoptions/applications	Dërgon aplikim për adoptim	qytetar	201, 400, 404, 409
+GET	/api/adoptions/applications	Aplikimet (qytetari sheh vetëm të vetat)	Të kyçur	200, 401
+PATCH	/api/adoptions/applications/:id/approve	Miraton aplikimin	administrator, staf	200, 403, 404, 409
+PATCH	/api/adoptions/applications/:id/reject	Refuzon aplikimin	administrator, staf	200, 400, 403, 404, 409
+PATCH	/api/adoptions/applications/:id/withdraw	Tërheq aplikimin	Zotëruesi i aplikimit	200, 403, 404, 409
+POST	/api/donations	Regjistron donacion	administrator, staf	201, 400, 403
+GET	/api/notifications	Njoftimet e përdoruesit	Të kyçur	200, 401
+[PLOTËSO] Hiq ose shto rreshta që të përputhen me endpoint-et që i ke implementuar realisht.
+4.3 Shembuj kërkesash dhe përgjigjesh
+POST /api/auth/login
+// Request
+{ "email": "veteriner@qendra.test", "fjalekalimi": "Test1234!" }
+
+// 200 OK
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOi...",
+    "perdoruesi": { "id": 3, "emri_i_plote": "Arben Krasniqi", "roli": "veteriner" }
+  }
+}
+POST /api/animals (rol: staf)
+// Request
+{ "emri": "Rex", "lloji": "qen", "raca": "Stërqok", "mosha_ne_muaj": 18,
+  "gjinia": "mashkull", "data_e_pranimit": "2026-10-20" }
+
+// 201 Created
+{ "success": true, "data": { "id": 9, "emri": "Rex", "statusi": "ne_kujdes" } }
+POST /api/adoptions/applications (rol: qytetar)
+// Request
+{ "kafshe_id": 4, "arsyeja": "Kam oborr dhe përvojë me qen.",
+  "informacion_banimi": "Shtëpi me oborr", "pervoja": "5 vjet me qen" }
+
+// 201 Created
+{ "success": true, "data": { "id": 7, "statusi": "ne_pritje" } }
+PATCH /api/tasks/5 (përditësim statusi)
+// Request
+{ "statusi": "kryer" }
+
+// 200 OK
+{ "success": true, "data": { "id": 5, "statusi": "kryer" } }
+4.4 Validimi dhe trajtimi i gabimeve
+Situata	HTTP	Kodi i gabimit
+Mungon fushë e detyrueshme (p.sh. emri te kafsha)	400	VALIDATION_ERROR
+Vlerë jashtë ENUM-it (p.sh. lloji: "zog") ose mosha_ne_muaj negative	400	VALIDATION_ERROR
+Kredenciale të gabuara ose llogari joaktive	401	INVALID_CREDENTIALS
+Token mungon ose ka skaduar	401	UNAUTHORIZED
+Roli nuk ka të drejtë (qytetari provon të miratojë aplikim)	403	FORBIDDEN
+Përdoruesi provon të ndryshojë resurs të dikujt tjetër	403	NOT_RESOURCE_OWNER
+ID nuk ekziston	404	*_NOT_FOUND
+Email-i ekziston tashmë (UNIQUE email)	409	EMAIL_ALREADY_EXISTS
+Aplikim i dyfishtë për të njëjtën kafshë	409	DUPLICATE_APPLICATION
+Aplikim për kafshë që nuk është ne_dispozicion	409	ANIMAL_NOT_AVAILABLE
+Aplikimi është shqyrtuar tashmë	409	APPLICATION_ALREADY_REVIEWED
+Hapësira është e plotë (kapaciteti i arritur)	409	SPACE_FULL
+Fshirje e kafshës që ka adoptim (ON DELETE RESTRICT)	409	ANIMAL_HAS_ADOPTION
+Gabim i papritur i serverit	500	INTERNAL_ERROR (pa detaje teknike për klientin)
+// 400 – POST /api/animals pa emër
+{
+  "success": false,
+  "error": "VALIDATION_ERROR",
+  "message": "Field 'emri' is required."
+}
+
+// 404 – GET /api/animals/9999
+{
+  "success": false,
+  "error": "ANIMAL_NOT_FOUND",
+  "message": "Animal does not exist."
+}
+
+// 403 – qytetari thërret PATCH /api/adoptions/applications/7/approve
+{
+  "success": false,
+  "error": "FORBIDDEN",
+  "message": "You do not have permission."
+}
+
+// 409 – aplikim i dyfishtë
+{
+  "success": false,
+  "error": "DUPLICATE_APPLICATION",
+  "message": "You have already applied for this animal."
+}
+5. Testimi me Postman
+Nr.	Test	Pritja	Rezultati
+1	Login me të dhëna të sakta	200 + token	[PLOTËSO]
+2	Login me fjalëkalim të gabuar	401	[PLOTËSO]
+3	Krijim kafshe si staf	201	[PLOTËSO]
+4	Krijim kafshe pa emri	400	[PLOTËSO]
+5	Krijim kafshe me lloji: "zog"	400	[PLOTËSO]
+6	Krijim kafshe si qytetar	403	[PLOTËSO]
+7	GET kafshë me ID që nuk ekziston	404	[PLOTËSO]
+8	Aplikim adoptimi si qytetar	201	[PLOTËSO]
+9	Aplikim i dytë për të njëjtën kafshë	409	[PLOTËSO]
+10	Miratim aplikimi si staf	200; kafsha bëhet i_adoptuar, aplikimet e tjera refuzuar	[PLOTËSO]
+11	Miratim i të njëjtit aplikim përsëri	409	[PLOTËSO]
+12	Fshirje e kafshës së adoptuar	409	[PLOTËSO]
+13	PATCH detyrë e dikujt tjetër si vullnetar	403	[PLOTËSO]
+14	Kërkesë pa token	401	[PLOTËSO]
+[PLOTËSO] Shto pamje ekrani nga Postman për të paktën rastet 1, 4, 7, 10 dhe 13, dhe eksporto koleksionin Postman në repository.
+6. Progresi në Git
+Repository-i: [PLOTËSO – linku]
+Data	Commit	Përshkrimi
+[PLOTËSO]	feat: database schema (12 tables)	Skripta SQL e databazës
+[PLOTËSO]	init: Flask project structure	Struktura bazë e projektit
+[PLOTËSO]	feat: SQLAlchemy models	Modelet sipas skemës
+[PLOTËSO]	feat: auth with JWT and bcrypt	Autentikimi
+[PLOTËSO]	feat: animals CRUD	Moduli i kafshëve
+[PLOTËSO]	feat: medical records and assignments	Historiku mjekësor dhe strehimi
+[PLOTËSO]	feat: adoption flow with transaction	Aplikimet dhe miratimi
+[PLOTËSO]	feat: error handling and validation	Validimi dhe gabimet
+[PLOTËSO]	chore: seed data and Postman collection	Të dhëna testuese dhe dokumentim
+(Zëvendësoje me daljen reale të komandës git log --oneline.)
+7. Probleme teknike dhe zgjidhjet
+Problemi	Zgjidhja
+Miratimi i adoptimit ndryshon disa tabela dhe mund të linte të dhëna gjysmake nëse ndodhte gabim	Gjithçka u vendos në një transaksion me commit / rollback
+Dy staf mund të miratonin njëkohësisht dy aplikime për të njëjtën kafshë	Kontroll i statusit të kafshës para miratimit dhe UNIQUE te adoptimet.kafshe_id si mbrojtje e fundit në databazë
+Përdoruesit mund të ndryshonin aplikimet e të tjerëve duke ndryshuar ID-në në URL	Kontroll pronësie në shtresën e shërbimit, përveç kontrollit të rolit
+Gabimet e papritura ktheheshin si HTML nga Flask	Handler global i gabimeve që kthen gjithmonë JSON në formatin e njëjtë
+Renditja e krijimit të tabelave me çelësa të huaj	Tabelat krijohen sipas varësisë: perdoruesit → kafshet → tabelat e tjera
+[PLOTËSO] Përshtate këtë tabelë me problemet reale që ke hasur.
+8. Përgjigje për pyetjet tipike
+Çfarë ndodh nga momenti kur vjen request-i deri te ruajtja në databazë? Flask e drejton kërkesën te blueprint-i, verifikohet JWT dhe roli, validohet input-i, shërbimi zbaton rregullat e biznesit, SQLAlchemy krijon query-n e parametrizuar, ekzekutohet transaksioni dhe me commit ruhet; në gabim bëhet rollback. Në fund kthehet JSON me status code.
+Si parandalohet një e dhënë e pavlefshme? Në tri nivele: validim në API (fusha të detyrueshme, vlera të lejuara), rregulla biznesi në shërbim, dhe kufizime në databazë (NOT NULL, UNIQUE, CHECK, ENUM, FOREIGN KEY) si mbrojtje e fundit.
+Pse kjo lidhje është modeluar kështu? (p.sh. kafshet – hapesira_strehimit) Është lidhje shumë-me-shumë në kohë: një kafshë ndërron hapësirë dhe një hapësirë strehon shumë kafshë. Tabela detyra_per_kafshet ruan historikun, dhe caktimi aktiv është ai me liruar_me IS NULL, kështu kapaciteti kontrollohet duke numëruar caktimet aktive.
+Pse ON DELETE RESTRICT te adoptimet dhe CASCADE te të dhënat mjekësore? Adoptimi është dokument i përhershëm dhe nuk duhet të humbasë me fshirjen e një rekordi tjetër. Historiku mjekësor nuk ka kuptim pa kafshën, prandaj fshihet bashkë me të.
+Si kontrollohet që një përdorues nuk mund të ndryshojë të dhënat e dikujt tjetër? Me dy kontrolle: roli nga JWT (@role_required) dhe pronësia e resursit (p.sh. aplikues_id == current_user_id). Nëse dështon njëri, kthehet 403. ID-ja e përdoruesit merret gjithmonë nga tokeni, kurrë nga trupi i kërkesës.
+9. Çfarë demonstrohet gjatë prezantimit
+•	Databaza reale me të dhëna testuese dhe lidhjet kryesore
+•	CRUD për kafshët dhe detyrat; logjika e adoptimit
+•	Autentikimi dhe autorizimi sipas roleve
+•	Thirrje reale të API-së me Postman, përfshirë raste gabimi
+•	Git history nga Raporti 1 deri në Raportin 2
+10. Lista e dorëzimit
+•	☐ Prezantimi teknik me demonstrim real
+•	☐ Versioni aktual i repository-t
+•	☐ Skema e përditësuar e databazës (diagrami ER + skripta SQL)
+•	☐ Dokumentimi i endpoint-eve (kjo tabelë + koleksioni Postman)
+•	☐ Shënimi për problemet teknike dhe zgjidhjet (seksioni 7)
